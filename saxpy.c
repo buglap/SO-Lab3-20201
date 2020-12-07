@@ -17,19 +17,28 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <sys/time.h>
+#include <pthread.h>
+#include <semaphore.h> 
+
+void *calculate_saxpy(void *);
+typedef struct arr{
+	int init;
+	int end;
+	int it;
+	int p;
+}arr;
+sem_t lock;
+double *X, *Y, *Y_avgs;
+double a;
 
 int main(int argc, char* argv[]){
 	// Variables to obtain command line parameters
 	unsigned int seed = 1;
   	int p = 10000000;
   	int n_threads = 2;
-  	int max_iters = 1000;
-  	// Variables to perform SAXPY operation
-	double* X;
-	double a;
-	double* Y;
-	double* Y_avgs;
-	int i, it;
+  	int max_iters = 1;
+	//
+	int i,it;
 	// Variables to get execution time
 	struct timeval t_start, t_end;
 	double exec_time;
@@ -103,12 +112,25 @@ int main(int argc, char* argv[]){
 	 */
 	gettimeofday(&t_start, NULL);
 	//SAXPY iterative SAXPY mfunction
+	int n_vbt = p/n_threads;
+	sem_init(&lock, 0, 1);
+	pthread_t h[n_threads];
+	arr arrs[n_threads];
 	for(it = 0; it < max_iters; it++){
-		for(i = 0; i < p; i++){
-			Y[i] = Y[i] + a * X[i];
-			Y_avgs[it] += Y[i];
+		for (i = 0; i <n_threads; i++){
+			arrs[i].init=i*n_vbt;
+			if((i+1)!=n_threads){
+				arrs[i].end=(i+1)*n_vbt;
+			}else{
+				arrs[i].end=p+1;
+			}
+			arrs[i].it=it;
+			arrs[i].p=p;
+			pthread_create(&h[i],NULL,calculate_saxpy, &arrs[i]);
 		}
-		Y_avgs[it] = Y_avgs[it] / p;
+	       	for (i = 0; i <n_threads; i++){
+			pthread_join(h[i], NULL);
+		}
 	}
 	gettimeofday(&t_end, NULL);
 
@@ -127,4 +149,22 @@ int main(int argc, char* argv[]){
 	printf("Last 3 values of Y: %f, %f, %f \n", Y[p-3], Y[p-2], Y[p-1]);
 	printf("Last 3 values of Y_avgs: %f, %f, %f \n", Y_avgs[max_iters-3], Y_avgs[max_iters-2], Y_avgs[max_iters-1]);
 	return 0;
-}	
+}
+
+void *calculate_saxpy(void *args){
+	 arr *ar = (arr *)args;
+	 int i= ar->init;
+	 int end = ar->end;
+	 int it = ar->it;
+	 int p = ar->p;
+	 double t_yargs = 0.0;
+	 while(i<end){
+		Y[i] =Y[i] + a * X[i];
+		t_yargs += Y[i];
+		i++;
+	}
+	 sem_wait(&lock);
+	 Y_avgs[it] += t_yargs / p;
+	 sem_post(&lock);
+	 pthread_exit(NULL);
+}
